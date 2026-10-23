@@ -10,9 +10,7 @@ V místním OWASP Juice Shopu koupit Vánoční speciál z roku 2014 a použít 
 
 ### 1. Přihlášení a otevření konzole
 
-Otevřu Juice Shop a přihlásím se přes **Account → Login**. Pokud účet nemám, založím si ho přes **Not yet a customer?**. Pro doložený nákup byl použit testovací účet `ukol23@example.invalid`.
-
-Na stránce Juice Shopu stisknu **F12** nebo **Ctrl + Shift + J** a otevřu záložku **Console / Konzole**. Příkazy níže zadávám právě sem, ne do systémového terminálu. Každý blok spustím klávesou Enter a počkám na výsledek.
+Na stránce Juice Shopu stisknu **F12** nebo **Ctrl + Shift + J** a otevřu záložku **Console / Konzole**. Příkazy níže zadávám právě sem, ne do systémového terminálu.
 
 Konzole umožňuje spouštět JavaScript přímo v otevřené stránce. Funkcí `fetch()` odešlu požadavek do stejné aplikace, ve které jsem přihlášený. `await` počká, než dorazí odpověď. Pokud blok spouštím znovu, proměnné deklarované pomocí `var` lze použít opakovaně.
 
